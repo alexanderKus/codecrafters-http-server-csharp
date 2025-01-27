@@ -7,8 +7,6 @@ namespace codecrafters_http_server;
 
 public class HttpServer
 {
-    
-    private byte[] _buffer = new byte[4096];
     private TcpListener? _server = null;
 
     public HttpServer(int port = 4221)
@@ -21,12 +19,21 @@ public class HttpServer
         _server!.Start();
     }
 
-    public void Handle()
+    public async Task Handle()
     {
         if (_server is null) throw new Exception("server is null");
-        using var socket = _server.AcceptSocket();
-        var bytesRead = socket.Receive(_buffer);
-        var request = Encoding.ASCII.GetString(_buffer, 0, bytesRead);
+        while (true)
+        {
+            var socket = await _server.AcceptSocketAsync();
+            Task.Run(() => HandleConnection(socket));
+        }
+    }
+
+    private async Task HandleConnection(Socket socket)
+    {
+        var buffer = new byte[4096];
+        var bytesRead = socket.Receive(buffer);
+        var request = Encoding.ASCII.GetString(buffer, 0, bytesRead);
         var httpParts = request.Split("\r\n").Where(x => !string.IsNullOrEmpty(x)).ToArray();
         var headers = GetHeaders(httpParts);
         var (httpMethod, httpPath, httpVersion) = GetHttpInfo(httpParts);
@@ -34,36 +41,31 @@ public class HttpServer
             .Where(x => x != string.Empty)
             .ToArray();
         var message = string.Empty;
+        
         if (httpPathParts.Length == 0)
         {
             // Path: /
             message = "HTTP/1.1 200 OK\r\n\r\n";
         }
-        else if (httpPathParts[0] == "echo")
-        {
-            if (httpPathParts.Length > 1)
-            {
-                var arg = httpPathParts[1];
-                message = $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {arg.Length}\r\n\r\n{arg}";
-            }
-            else
-            {
-                message = "HTTP/1.1 200 OK\r\n\r\n";
-            }
-        }
-        else if (httpPathParts[0] == "user-agent" && headers.TryGetValue("User-Agent", out var value))
-        {
-                message = $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {value.Length}\r\n\r\n{value}";
-        }
         else
         {
-            Console.WriteLine("Not Found");
-            message = "HTTP/1.1 404 Not Found\r\n\r\n";
+            switch (httpPathParts[0])
+            {
+                case "echo": 
+                    message = HandleEcho(httpPathParts);
+                    break;
+                case "user-agent":
+                    message = HandleUserAgent(headers);
+                    break;
+                default:
+                    Console.WriteLine("Not Found");
+                    message = "HTTP/1.1 404 Not Found\r\n\r\n";
+                    break;
+            }
         }
-
-        socket.Send(Encoding.UTF8.GetBytes(message));
+        await socket.SendAsync(Encoding.UTF8.GetBytes(message));
     }
-
+    
     private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts)
     { 
         Dictionary<string, string> dictionary = new();
@@ -82,5 +84,19 @@ public class HttpServer
         var httpPath = httpInfo[1];
         var httpVersion = httpInfo[2];
         return (httpMethod, httpPath, httpVersion);
+    }
+
+    private string HandleEcho(string[] path)
+    {
+        if (path.Length <= 1) return "HTTP/1.1 200 OK\r\n\r\n";
+        var arg = path[1];
+        return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {arg.Length}\r\n\r\n{arg}";
+    }
+
+    private string HandleUserAgent(ReadOnlyDictionary<string, string> headers)
+    {
+        return headers.TryGetValue("User-Agent", out var value) 
+            ? $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {value.Length}\r\n\r\n{value}" 
+            : "HTTP/1.1 404 Not Found\r\n\r\n";
     }
 }
