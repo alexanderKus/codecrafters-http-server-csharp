@@ -47,6 +47,7 @@ public class HttpServer
         var httpParts = request.Split("\r\n").Where(x => !string.IsNullOrEmpty(x)).ToArray();
         var headers = GetHeaders(httpParts);
         var (httpMethod, httpPath, httpVersion) = GetHttpInfo(httpParts);
+        var body = httpParts.Last();
         var httpPathParts = httpPath.Split("/")
             .Where(x => x != string.Empty)
             .ToArray();
@@ -59,22 +60,42 @@ public class HttpServer
         }
         else
         {
-            switch (httpPathParts[0])
+            switch (httpMethod)
             {
-                case "echo": 
-                    message = HandleEcho(httpPathParts);
+                case "GET":
+                    switch (httpPathParts[0])
+                    {
+                        case "echo": 
+                            message = HandleGetEcho(httpPathParts);
+                            break;
+                        case "user-agent":
+                            message = HandleGetUserAgent(headers);
+                            break;
+                        case "files":
+                            message = HandleGetFiles(httpPathParts);
+                            break;
+                        default:
+                            Console.WriteLine("Not Found");
+                            message = "HTTP/1.1 404 Not Found\r\n\r\n";
+                            break;
+                    }
                     break;
-                case "user-agent":
-                    message = HandleUserAgent(headers);
-                    break;
-                case "files":
-                    message = HandleFiles(httpPathParts);
+                case "POST":
+                    switch (httpPathParts[0])
+                    {
+                        case "files":
+                            message = HandlePostFiles(httpPathParts, body);
+                            break;
+                        default:
+                            Console.WriteLine("Not Found");
+                            message = "HTTP/1.1 404 Not Found\r\n\r\n";
+                            break;
+                    }
                     break;
                 default:
-                    Console.WriteLine("Not Found");
-                    message = "HTTP/1.1 404 Not Found\r\n\r\n";
-                    break;
+                    throw new Exception("Unsupported method");
             }
+            
         }
         await socket.SendAsync(Encoding.UTF8.GetBytes(message));
     }
@@ -82,7 +103,7 @@ public class HttpServer
     private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts)
     { 
         Dictionary<string, string> dictionary = new();
-        foreach(var header in httpParts[1..])
+        foreach(var header in httpParts[1..^1])
         {
             var parts = header.Split(':', 2);
             dictionary[parts[0]] = parts[1].Trim();
@@ -99,21 +120,21 @@ public class HttpServer
         return (httpMethod, httpPath, httpVersion);
     }
 
-    private string HandleEcho(string[] path)
+    private string HandleGetEcho(string[] path)
     {
         if (path.Length <= 1) return "HTTP/1.1 200 OK\r\n\r\n";
         var arg = path[1];
         return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {arg.Length}\r\n\r\n{arg}";
     }
 
-    private string HandleUserAgent(ReadOnlyDictionary<string, string> headers)
+    private string HandleGetUserAgent(ReadOnlyDictionary<string, string> headers)
     {
         return headers.TryGetValue("User-Agent", out var value) 
             ? $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {value.Length}\r\n\r\n{value}" 
             : "HTTP/1.1 404 Not Found\r\n\r\n";
     }
     
-    private string HandleFiles(string[] path)
+    private string HandleGetFiles(string[] path)
     {
         var filename = path[1];
         var directory = Environment.GetCommandLineArgs()[2];
@@ -121,5 +142,24 @@ public class HttpServer
         if (!File.Exists(fullPath)) return "HTTP/1.1 404 Not Found\r\n\r\n";
         var content = File.ReadAllText(fullPath);
         return $"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {content.Length}\r\n\r\n{content}";
+    }
+    
+    private string HandlePostFiles(string[] path, string body)
+    {
+        var filename = path[1];
+        var directory = Environment.GetCommandLineArgs()[2];
+        var fullPath = Path.Combine(directory, filename);
+        try
+        {
+            var file = File.Create(fullPath);
+            file.Write(Encoding.UTF8.GetBytes(body));
+            file.Close();
+        }
+        catch (IOException)
+        {
+            Console.WriteLine($"Cannot write to a file {fullPath}, content {body}");
+            return "HTTP/1.1 400 Bad Request\r\n\r\n";
+        }
+        return "HTTP/1.1 201 Created\r\n\r\n";
     }
 }
