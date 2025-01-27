@@ -25,7 +25,17 @@ public class HttpServer
         while (true)
         {
             var socket = await _server.AcceptSocketAsync();
-            Task.Run(() => HandleConnection(socket));
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await HandleConnection(socket);
+                }
+                finally
+                {
+                    socket.Dispose();
+                }
+            });
         }
     }
 
