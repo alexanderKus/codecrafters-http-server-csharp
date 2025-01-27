@@ -1,6 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
 using codecrafters_http_server;
 
 Console.WriteLine("APPLICATION START");
