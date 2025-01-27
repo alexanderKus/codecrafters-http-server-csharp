@@ -67,6 +67,9 @@ public class HttpServer
                 case "user-agent":
                     message = HandleUserAgent(headers);
                     break;
+                case "files":
+                    message = HandleFiles(httpPathParts);
+                    break;
                 default:
                     Console.WriteLine("Not Found");
                     message = "HTTP/1.1 404 Not Found\r\n\r\n";
@@ -75,7 +78,7 @@ public class HttpServer
         }
         await socket.SendAsync(Encoding.UTF8.GetBytes(message));
     }
-    
+
     private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts)
     { 
         Dictionary<string, string> dictionary = new();
@@ -108,5 +111,15 @@ public class HttpServer
         return headers.TryGetValue("User-Agent", out var value) 
             ? $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {value.Length}\r\n\r\n{value}" 
             : "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+    
+    private string HandleFiles(string[] path)
+    {
+        var filename = path[1];
+        var directory = Environment.GetCommandLineArgs()[2];
+        var fullPath = Path.Combine(directory, filename);
+        if (!File.Exists(fullPath)) return "HTTP/1.1 404 Not Found\r\n\r\n";
+        var content = File.ReadAllText(fullPath);
+        return $"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {content.Length}\r\n\r\n{content}";
     }
 }
