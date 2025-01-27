@@ -45,9 +45,10 @@ public class HttpServer
         var bytesRead = socket.Receive(buffer);
         var request = Encoding.ASCII.GetString(buffer, 0, bytesRead);
         var httpParts = request.Split("\r\n").Where(x => !string.IsNullOrEmpty(x)).ToArray();
-        var headers = GetHeaders(httpParts);
+        var hasBody = !request.EndsWith("\r\n");
+        var headers = GetHeaders(httpParts, hasBody);
         var (httpMethod, httpPath, httpVersion) = GetHttpInfo(httpParts);
-        var body = httpParts.Last();
+        var body = hasBody ? httpParts.Last() : string.Empty;
         var httpPathParts = httpPath.Split("/")
             .Where(x => x != string.Empty)
             .ToArray();
@@ -75,7 +76,7 @@ public class HttpServer
                             message = HandleGetFiles(httpPathParts);
                             break;
                         default:
-                            Console.WriteLine("Not Found");
+                            Console.WriteLine("Get Not Found");
                             message = "HTTP/1.1 404 Not Found\r\n\r\n";
                             break;
                     }
@@ -87,7 +88,7 @@ public class HttpServer
                             message = HandlePostFiles(httpPathParts, body);
                             break;
                         default:
-                            Console.WriteLine("Not Found");
+                            Console.WriteLine("Post Not Found");
                             message = "HTTP/1.1 404 Not Found\r\n\r\n";
                             break;
                     }
@@ -100,13 +101,24 @@ public class HttpServer
         await socket.SendAsync(Encoding.UTF8.GetBytes(message));
     }
 
-    private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts)
+    private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts, bool hasBody)
     { 
         Dictionary<string, string> dictionary = new();
-        foreach(var header in httpParts[1..^1])
+        if (hasBody)
         {
-            var parts = header.Split(':', 2);
-            dictionary[parts[0]] = parts[1].Trim();
+            foreach(var header in httpParts[1..^1])
+            {
+                var parts = header.Split(':', 2);
+                dictionary[parts[0]] = parts[1].Trim();
+            }
+        }
+        else
+        {
+            foreach(var header in httpParts[1..])
+            {
+                var parts = header.Split(':', 2);
+                dictionary[parts[0]] = parts[1].Trim();
+            }
         }
 
         return dictionary.AsReadOnly();
