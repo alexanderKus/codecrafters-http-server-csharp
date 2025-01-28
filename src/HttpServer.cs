@@ -5,6 +5,116 @@ using System.Text;
 
 namespace codecrafters_http_server;
 
+
+public abstract class MyHttpMethod
+{
+    public abstract string Method { get; }
+    
+    public class Get : MyHttpMethod
+    {
+        public override string Method { get; } = "GET";
+    }
+    public class Post : MyHttpMethod
+    {
+        public override string Method { get; } = "POST";
+    }
+}
+
+public abstract class MyHttpCode
+{
+    public abstract string Code { get; }
+    public abstract string Name { get; }
+
+    public class Ok : MyHttpCode
+    {
+        public override string Code { get; } = "200";
+        public override string Name { get; } = "Ok";
+        public override string ToString()
+            => $"{Code} {Name}";
+    }
+    public class Created : MyHttpCode
+    {
+        public override string Code { get; } = "201";
+        public override string Name { get; } = "Created";
+        public override string ToString()
+            => $"{Code} {Name}";
+    }
+    public class NotFound : MyHttpCode
+    {
+        public override string Code { get; } = "404";
+        public override string Name { get; } = "Not Found";
+        public override string ToString()
+            => $"{Code} {Name}";
+    }
+    public class BadRequest : MyHttpCode
+    {
+        public override string Code { get; } = "400";
+        public override string Name { get; } = "Bad Request";
+        public override string ToString()
+            => $"{Code} {Name}";
+    }
+}
+
+public class MyResponse(MyHttpMethod method, IDictionary<string, string> requestHeader)
+{
+    public IReadOnlyDictionary<string, string> RequestHeader { get; } = requestHeader.AsReadOnly();
+    private IDictionary<string, string> _responseHeader = new Dictionary<string, string>();
+    private MyHttpMethod? _status = method;
+    private string? _body;
+    private MyHttpCode? _code;
+
+    public void SetHttpCode(MyHttpCode code)
+        => _code = code;
+
+    public void SetResponseHeader(string key, string value)
+        => _responseHeader.Add(key, value);
+    public void SetBody(string body)
+        => _body = body;
+    public override string ToString()
+    {
+        StringBuilder context = new();
+        context.Append($"HTTP/1.1 {_code}");
+
+        foreach (var header in _responseHeader)
+        {
+            context.Append(header.Key);
+            context.Append(": ");
+            context.Append(header.Value);
+            context.Append("\r\n");
+        }
+
+        var hasCompression = false;
+        if (RequestHeader.TryGetValue("Accept-Encoding", out var value))
+        {
+            if (value != "invalid-encoding")
+            {
+                hasCompression = true;
+                context.Append("Content-Encoding");
+                context.Append(": ");
+                context.Append(value);
+                context.Append("\r\n");
+            }
+        }
+        context.Append("\r\n\r\n");
+        // NOTE: omit body. Just for now.
+        return context.ToString();
+        if (_body is not null)
+        {
+            if (hasCompression)
+            {
+                // TODO: add copression
+                context.Append(_body);
+            }
+            else
+            {
+                context.Append(_body);
+            }
+        }
+
+        return context.ToString();
+    }
+}
+
 public class HttpServer
 {
     private TcpListener? _server = null;
@@ -52,12 +162,12 @@ public class HttpServer
         var httpPathParts = httpPath.Split("/")
             .Where(x => x != string.Empty)
             .ToArray();
-        var message = string.Empty;
+        var response = new MyResponse(httpMethod == "GET" ? new MyHttpMethod.Get() : new MyHttpMethod.Post(), headers);
         
         if (httpPathParts.Length == 0)
         {
             // Path: /
-            message = "HTTP/1.1 200 OK\r\n\r\n";
+            response.SetHttpCode(new MyHttpCode.Ok());
         }
         else
         {
@@ -67,17 +177,17 @@ public class HttpServer
                     switch (httpPathParts[0])
                     {
                         case "echo": 
-                            message = HandleGetEcho(httpPathParts);
+                            HandleGetEcho(response, httpPathParts);
                             break;
                         case "user-agent":
-                            message = HandleGetUserAgent(headers);
+                            HandleGetUserAgent(response);
                             break;
                         case "files":
-                            message = HandleGetFiles(httpPathParts);
+                            HandleGetFiles(response, httpPathParts);
                             break;
                         default:
                             Console.WriteLine("Get Not Found");
-                            message = "HTTP/1.1 404 Not Found\r\n\r\n";
+                            response.SetHttpCode(new MyHttpCode.NotFound());
                             break;
                     }
                     break;
@@ -85,11 +195,11 @@ public class HttpServer
                     switch (httpPathParts[0])
                     {
                         case "files":
-                            message = HandlePostFiles(httpPathParts, body);
+                            HandlePostFiles(response, httpPathParts, body);
                             break;
                         default:
                             Console.WriteLine("Post Not Found");
-                            message = "HTTP/1.1 404 Not Found\r\n\r\n";
+                            response.SetHttpCode(new MyHttpCode.NotFound());
                             break;
                     }
                     break;
@@ -98,7 +208,7 @@ public class HttpServer
             }
             
         }
-        await socket.SendAsync(Encoding.UTF8.GetBytes(message));
+        await socket.SendAsync(Encoding.UTF8.GetBytes(response.ToString()));
     }
 
     private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts, bool hasBody)
@@ -132,31 +242,47 @@ public class HttpServer
         return (httpMethod, httpPath, httpVersion);
     }
 
-    private string HandleGetEcho(string[] path)
+    private void HandleGetEcho(MyResponse response, string[] path)
     {
-        if (path.Length <= 1) return "HTTP/1.1 200 OK\r\n\r\n";
+        response.SetHttpCode(new MyHttpCode.Ok());
+        if (path.Length <= 1) return;
         var arg = path[1];
-        return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {arg.Length}\r\n\r\n{arg}";
+        response.SetResponseHeader("Content-Type", "text/plain");
+        response.SetResponseHeader("Content-Length", arg.Length.ToString());
+        response.SetBody(arg);
     }
 
-    private string HandleGetUserAgent(ReadOnlyDictionary<string, string> headers)
+    private void HandleGetUserAgent(MyResponse response)
     {
-        return headers.TryGetValue("User-Agent", out var value) 
-            ? $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {value.Length}\r\n\r\n{value}" 
-            : "HTTP/1.1 404 Not Found\r\n\r\n";
+        if (!response.RequestHeader.TryGetValue("User-Agent", out var value))
+        {
+            response.SetHttpCode(new MyHttpCode.NotFound());
+            return;
+        }
+        response.SetHttpCode(new MyHttpCode.Ok());
+        response.SetResponseHeader("Content-Type", "text/plain");
+        response.SetResponseHeader("Content-Length", value.Length.ToString());
+        response.SetBody(value);
     }
     
-    private string HandleGetFiles(string[] path)
+    private void HandleGetFiles(MyResponse response, string[] path)
     {
         var filename = path[1];
         var directory = Environment.GetCommandLineArgs()[2];
         var fullPath = Path.Combine(directory, filename);
-        if (!File.Exists(fullPath)) return "HTTP/1.1 404 Not Found\r\n\r\n";
+        if (!File.Exists(fullPath))
+        {
+            response.SetHttpCode(new MyHttpCode.NotFound());
+            return;
+        }
         var content = File.ReadAllText(fullPath);
-        return $"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {content.Length}\r\n\r\n{content}";
+        response.SetHttpCode(new MyHttpCode.Ok());
+        response.SetResponseHeader("Content-Type", "application/octet-stream");
+        response.SetResponseHeader("Content-Length", content.Length.ToString());
+        response.SetBody(content);
     }
     
-    private string HandlePostFiles(string[] path, string body)
+    private void HandlePostFiles(MyResponse response, string[] path, string body)
     {
         var filename = path[1];
         var directory = Environment.GetCommandLineArgs()[2];
@@ -170,8 +296,9 @@ public class HttpServer
         catch (IOException)
         {
             Console.WriteLine($"Cannot write to a file {fullPath}, content {body}");
-            return "HTTP/1.1 400 Bad Request\r\n\r\n";
+            response.SetHttpCode(new MyHttpCode.BadRequest());
+            return;
         }
-        return "HTTP/1.1 201 Created\r\n\r\n";
+        response.SetHttpCode(new MyHttpCode.Created());
     }
 }
