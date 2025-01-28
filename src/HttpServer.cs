@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -60,7 +61,7 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
     public IReadOnlyDictionary<string, string> RequestHeader { get; } = requestHeader.AsReadOnly();
     private readonly Dictionary<string, string> _responseHeader = new();
     private MyHttpMethod? _status = method;
-    private string? _body;
+    private string _body = string.Empty;
     private MyHttpCode? _code;
     private static readonly string[] ValidCompressions = ["gzip"];
 
@@ -71,11 +72,10 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
         => _responseHeader.Add(key, value);
     public void SetBody(string body)
         => _body = body;
-    public override string ToString()
+    public byte[] GetBytes()
     {
         StringBuilder context = new();
         context.Append($"HTTP/1.1 {_code}\r\n");
-
         foreach (var header in _responseHeader)
         {
             context.Append(header.Key);
@@ -83,11 +83,10 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
             context.Append(header.Value);
             context.Append("\r\n");
         }
-
         var hasCompression = false;
         if (RequestHeader.TryGetValue("Accept-Encoding", out var value))
         {
-            var compressions = value.Split(',').Select(x => x.Trim()).ToArray();
+            var compressions = value.Split(',', StringSplitOptions.TrimEntries).ToArray();
             foreach (var compression in compressions)
             {
                 if (!ValidCompressions.Contains(compression.ToLower())) continue;
@@ -99,22 +98,27 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
                 break;
             }
         }
-
-        context.Append(_responseHeader.Count > 0 ? "\r\n" : "\r\n\r\n");
-        if (_body is not null)
+        if (hasCompression)
         {
-            if (hasCompression)
-            {
-                // TODO: add copression
-                context.Append(_body);
-            }
-            else
-            {
-                context.Append(_body);
-            }
+            var bytes  = Encoding.UTF8.GetBytes(_body);
+            using var memoryStream = new MemoryStream();
+            using var gzipStream = new GZipStream(memoryStream, CompressionMode.Compress, true);
+            gzipStream.Write(bytes, 0, bytes.Length);
+            gzipStream.Flush();
+            gzipStream.Close();
+            var compressed = memoryStream.ToArray();
+            context.Append("Content-Length");
+            context.Append(": ");
+            context.Append(compressed.Length);
+            context.Append("\r\n\r\n");
+            return [..Encoding.UTF8.GetBytes(context.ToString()), ..compressed];
         }
-
-        return context.ToString();
+        context.Append("Content-Length");
+        context.Append(": ");
+        context.Append(_body.Length);
+        context.Append("\r\n\r\n");
+        context.Append(_body);
+        return Encoding.UTF8.GetBytes(context.ToString());
     }
 }
 
@@ -211,7 +215,7 @@ public class HttpServer
             }
             
         }
-        await socket.SendAsync(Encoding.UTF8.GetBytes(response.ToString()));
+        await socket.SendAsync(response.GetBytes());
     }
 
     private ReadOnlyDictionary<string, string> GetHeaders(ReadOnlySpan<string> httpParts, bool hasBody)
@@ -251,7 +255,6 @@ public class HttpServer
         if (path.Length <= 1) return;
         var arg = path[1];
         response.SetResponseHeader("Content-Type", "text/plain");
-        response.SetResponseHeader("Content-Length", arg.Length.ToString());
         response.SetBody(arg);
     }
 
@@ -264,7 +267,6 @@ public class HttpServer
         }
         response.SetHttpCode(new MyHttpCode.Ok());
         response.SetResponseHeader("Content-Type", "text/plain");
-        response.SetResponseHeader("Content-Length", value.Length.ToString());
         response.SetBody(value);
     }
     
@@ -281,7 +283,6 @@ public class HttpServer
         var content = File.ReadAllText(fullPath);
         response.SetHttpCode(new MyHttpCode.Ok());
         response.SetResponseHeader("Content-Type", "application/octet-stream");
-        response.SetResponseHeader("Content-Length", content.Length.ToString());
         response.SetBody(content);
     }
     
