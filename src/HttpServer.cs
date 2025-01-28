@@ -87,7 +87,7 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
         var hasCompression = false;
         if (RequestHeader.TryGetValue("Accept-Encoding", out var value))
         {
-            var compressions = value.Split(',').ToArray();
+            var compressions = value.Split(',').Select(x => x.Trim()).ToArray();
             foreach (var compression in compressions)
             {
                 if (!ValidCompressions.Contains(compression.ToLower())) continue;
