@@ -97,8 +97,6 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
         }
 
         context.Append(_responseHeader.Count > 0 ? "\r\n" : "\r\n\r\n");
-        // NOTE: omit body. Just for now.
-        return context.ToString();
         if (_body is not null)
         {
             if (hasCompression)
