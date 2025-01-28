@@ -73,7 +73,7 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
     public override string ToString()
     {
         StringBuilder context = new();
-        context.Append($"HTTP/1.1 {_code}");
+        context.Append($"HTTP/1.1 {_code}\r\n");
 
         foreach (var header in _responseHeader)
         {
@@ -96,10 +96,7 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
             }
         }
 
-        if (_responseHeader.Count > 0)
-            context.Append("\r\n");
-        else
-            context.Append("\r\n\r\n");
+        context.Append(_responseHeader.Count > 0 ? "\r\n" : "\r\n\r\n");
         // NOTE: omit body. Just for now.
         return context.ToString();
         if (_body is not null)
