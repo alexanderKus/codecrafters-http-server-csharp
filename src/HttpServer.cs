@@ -58,10 +58,11 @@ public abstract class MyHttpCode
 public class MyResponse(MyHttpMethod method, IDictionary<string, string> requestHeader)
 {
     public IReadOnlyDictionary<string, string> RequestHeader { get; } = requestHeader.AsReadOnly();
-    private IDictionary<string, string> _responseHeader = new Dictionary<string, string>();
+    private readonly Dictionary<string, string> _responseHeader = new();
     private MyHttpMethod? _status = method;
     private string? _body;
     private MyHttpCode? _code;
+    private static readonly string[] ValidCompressions = ["gzip"];
 
     public void SetHttpCode(MyHttpCode code)
         => _code = code;
@@ -86,13 +87,16 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
         var hasCompression = false;
         if (RequestHeader.TryGetValue("Accept-Encoding", out var value))
         {
-            if (value != "invalid-encoding")
+            var compressions = value.Split(',').ToArray();
+            foreach (var compression in compressions)
             {
+                if (!ValidCompressions.Contains(compression.ToLower())) continue;
                 hasCompression = true;
                 context.Append("Content-Encoding");
                 context.Append(": ");
-                context.Append(value);
+                context.Append(compression);
                 context.Append("\r\n");
+                break;
             }
         }
 
