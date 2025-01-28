@@ -95,7 +95,11 @@ public class MyResponse(MyHttpMethod method, IDictionary<string, string> request
                 context.Append("\r\n");
             }
         }
-        context.Append("\r\n\r\n");
+
+        if (_responseHeader.Count > 0)
+            context.Append("\r\n");
+        else
+            context.Append("\r\n\r\n");
         // NOTE: omit body. Just for now.
         return context.ToString();
         if (_body is not null)
