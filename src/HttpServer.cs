@@ -28,7 +28,7 @@ public abstract class MyHttpCode
     public class Ok : MyHttpCode
     {
         public override string Code { get; } = "200";
-        public override string Name { get; } = "Ok";
+        public override string Name { get; } = "OK";
         public override string ToString()
             => $"{Code} {Name}";
     }
